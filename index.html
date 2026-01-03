@@ -10,41 +10,78 @@
             margin: 20px;
         }
 
-        .user-section {
-            margin-bottom: 10px;
-            border: 1px solid #ccc;
-            padding: 10px;
-            border-radius: 6px;
-        }
-
-        .kara-list {
-            margin-left: 20px;
-            display: none;
-        }
-
-        .over {
-            color: red;
-        }
-
-        .ok {
-            color: green;
-        }
-
-        .zero {
-            color: gray;
-        }
-
         #playlistDescription {
             font-style: italic;
             margin-bottom: 15px;
         }
 
+        .user-section {
+            margin-bottom: 15px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            padding: 5px;
+            overflow: hidden;
+        }
+
+        .user-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .kara-container {
+            margin-left: 20px;
+            margin-top: 5px;
+            display: none;
+            transition: all 0.3s ease;
+        }
+
+        .kara-item {
+            border-left: 2px solid #ccc;
+            padding-left: 10px;
+            margin-bottom: 5px;
+        }
+
+.over { color: #e74c3c; }   /* rouge pour dépassement */
+.ok { color: #6abf69; }     /* vert doux pour OK */
+.zero { color: #b0b0b0; }   /* gris clair pour zéro */
+
+
         .toggle-btn {
-            margin-left: 10px;
-            cursor: pointer;
             background: none;
             border: none;
             font-size: 1em;
+            cursor: pointer;
+        }
+
+        .kara-title {
+            font-weight: bold;
+        }
+
+        .kara-info {
+            font-size: 0.9em;
+            color: #555;
+        }
+
+        .tag {
+            background: #eee;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-size: 0.75em;
+            margin-right: 3px;
+        }
+
+        .version-tag {
+            font-style: italic;
+            font-size: 0.85em;
+            color: #0077cc;
+            margin-left: 5px;
+        }
+
+        #searchInput {
+            margin-bottom: 10px;
+            width: 300px;
+            padding: 5px;
         }
 
         .multi-user-line {
@@ -53,24 +90,36 @@
             gap: 10px;
             margin-bottom: 10px;
         }
+
+        .time-bar-container {
+            background: #eee;
+            height: 15px;
+            border-radius: 5px;
+            overflow: hidden;
+            margin-top: 5px;
+        }
+
+        .time-bar {
+            height: 100%;
+            width: 0;
+            transition: width 0.5s ease;
+        }
     </style>
 </head>
 
 <body>
-
     <h1>Lecture de Playlist Karaoke Mugen</h1>
     <p id="playlistDescription"></p>
 
-    <input type="file" id="fileInput" accept=".kmplaylist">
-    <br><br>
+    <input type="file" id="fileInput" accept=".kmplaylist"><br><br>
 
     <label>Temps théorique total (minutes) :</label>
-    <input type="number" id="theoreticalTime" value="180">
-    <br>
-
+    <input type="number" id="theoreticalTime" value="180"><br>
     <label>Nombre d'utilisateurs théorique :</label>
-    <input type="number" id="theoreticalUsers" value="15">
-    <br>
+    <input type="number" id="theoreticalUsers" value="15"><br><br>
+
+    <label>Rechercher un karaoké :</label>
+    <input type="text" id="searchInput" placeholder="Titre ou artiste..."><br><br>
 
     <div class="multi-user-line">
         <label>Diviser durée par nombre de personnes pour :</label>
@@ -79,6 +128,7 @@
         <button id="recalcBtn">Calculer le temps</button>
     </div>
 
+    <button id="toggleAllBtn">Tout dérouler</button><br><br>
     <div id="playlistOutput"></div>
 
     <script>
@@ -87,36 +137,27 @@
         document.getElementById('fileInput').addEventListener('change', evt => {
             const file = evt.target.files[0];
             if (!file) return;
-
             const reader = new FileReader();
             reader.onload = e => {
                 try {
                     playlistData = JSON.parse(e.target.result);
-
-                    let playlistTitle = playlistData.PlaylistInformation.name || "Playlist Karaoke Mugen";
+                    const playlistTitle = playlistData.PlaylistInformation.name || "Playlist Karaoke Mugen";
                     document.title = playlistTitle;
                     document.querySelector('h1').textContent = playlistTitle;
-
                     const description = playlistData.PlaylistInformation.description || "";
                     document.getElementById('playlistDescription').textContent = description;
-
                     remplirSelectUsers();
                     afficherPlaylist();
-                } catch (err) {
-                    console.error(err);
-                    alert('Erreur : fichier JSON invalide');
-                }
+                } catch (err) { console.error(err); alert('Erreur : fichier JSON invalide'); }
             };
-
             reader.readAsText(file);
         });
 
+        document.getElementById('searchInput').addEventListener('input', afficherPlaylist);
         document.getElementById('recalcBtn').addEventListener('click', afficherPlaylist);
 
         function getKaraokesFromPlaylist(data) {
-            for (const key in data) {
-                if (Array.isArray(data[key]) && data[key][0]?.kid) return data[key];
-            }
+            for (const key in data) { if (Array.isArray(data[key]) && data[key][0]?.kid) return data[key]; }
             return [];
         }
 
@@ -130,37 +171,33 @@
         function remplirSelectUsers() {
             const select = document.getElementById('multiUserSelect');
             select.innerHTML = '';
-
             const emptyOpt = document.createElement('option');
-            emptyOpt.value = '';
-            emptyOpt.textContent = '-- aucun --';
-            emptyOpt.selected = true;
+            emptyOpt.value = ''; emptyOpt.textContent = '-- aucun --'; emptyOpt.selected = true;
             select.appendChild(emptyOpt);
-
             getAllUsers(playlistData).forEach(u => {
-                const opt = document.createElement('option');
-                opt.value = u;
-                opt.textContent = u;
-                select.appendChild(opt);
+                const opt = document.createElement('option'); opt.value = u; opt.textContent = u; select.appendChild(opt);
             });
-
             select.value = '';
         }
 
         function afficherPlaylist() {
             if (!playlistData) return;
+            const searchQuery = document.getElementById('searchInput').value.toLowerCase();
+            const karaList = getKaraokesFromPlaylist(playlistData)
+                .filter(k => {
+                    const title = k.titles?.eng || k.titles?.jpn || "Sans titre";
+                    const artists = k.singers?.map(s => s.name).join(", ") || "";
+                    return title.toLowerCase().includes(searchQuery) || artists.toLowerCase().includes(searchQuery);
+                });
 
-            const karaList = getKaraokesFromPlaylist(playlistData);
             const container = document.getElementById('playlistOutput');
             container.innerHTML = '';
 
-            // Temps total
             const totalPlaylist = karaList.reduce((s, k) => s + (k.duration || 0), 0);
             const totalDiv = document.createElement('div');
             totalDiv.innerHTML = `<b>Temps total :</b> ${Math.floor(totalPlaylist / 60)}:${String(totalPlaylist % 60).padStart(2, '0')} (${karaList.length} karaokés)`;
             container.appendChild(totalDiv);
 
-            // Temps théorique par utilisateur
             const theoreticalTime = (+document.getElementById('theoreticalTime').value || 180) * 60;
             const theoreticalUsers = +document.getElementById('theoreticalUsers').value || 15;
             const timePerUser = theoreticalTime / theoreticalUsers;
@@ -168,120 +205,89 @@
             theoreticalDiv.innerHTML = `<b>Temps théorique par utilisateur :</b> ${Math.floor(timePerUser / 60)}:${String(Math.floor(timePerUser % 60)).padStart(2, '0')} pour ${theoreticalUsers} utilisateurs<br><br>`;
             container.appendChild(theoreticalDiv);
 
-            // Bouton Tout dérouler / Tout replier
-            const toggleDiv = document.createElement('div');
-            toggleDiv.style.margin = '5px 0';
-            const toggleAllBtn = document.createElement('button');
-            toggleAllBtn.id = 'toggleAllBtn';
-            toggleAllBtn.textContent = 'Tout dérouler / Tout replier';
-            toggleDiv.appendChild(toggleAllBtn);
-            container.appendChild(toggleDiv);
-
-            toggleAllBtn.addEventListener('click', () => {
-                const lists = document.querySelectorAll('.kara-list');
-                const anyClosed = Array.from(lists).some(ul => ul.style.display === 'none');
-
-                lists.forEach(ul => {
-                    const btn = ul.previousSibling;
-                    if (anyClosed) {
-                        ul.style.display = 'block';
-                        if (btn && btn.className === 'toggle-btn') btn.textContent = '▼';
-                    } else {
-                        ul.style.display = 'none';
-                        if (btn && btn.className === 'toggle-btn') btn.textContent = '▶';
-                    }
-                });
-
-                toggleAllBtn.textContent = anyClosed ? 'Tout replier' : 'Tout dérouler';
-            });
-
             const multiUser = document.getElementById('multiUserSelect').value;
             const multiUsers = +document.getElementById('multiUsers').value || 1;
 
             const users = {};
             getAllUsers(playlistData).forEach(u => users[u] = { total: 0, songs: [], totalSongs: 0 });
-
-            karaList.forEach(k => {
-                const u = k.nickname || "Inconnu";
-                users[u].total += k.duration || 0;
-                users[u].totalSongs += 1;
-                users[u].songs.push(k);
-            });
+            karaList.forEach(k => { const u = k.nickname || "Inconnu"; users[u].total += k.duration || 0; users[u].totalSongs += 1; users[u].songs.push(k); });
 
             const userEntries = [];
-
             Object.entries(users).forEach(([user, data]) => {
                 if (multiUser && user === multiUser && multiUsers > 1) {
-                    const sharedDuration = data.total / multiUsers;
-                    const sharedSongs = data.totalSongs / multiUsers;
-
-                    userEntries.push([user, {
-                        total: data.total - sharedDuration,
-                        songs: [],
-                        totalSongs: data.totalSongs - sharedSongs
-                    }]);
-
-                    userEntries.push([`${user} (partagé)`, {
-                        total: sharedDuration,
-                        songs: data.songs,
-                        totalSongs: sharedSongs
-                    }]);
-                } else {
-                    userEntries.push([user, data]);
-                }
+                    const sharedDuration = data.total / multiUsers, sharedSongs = data.totalSongs / multiUsers;
+                    userEntries.push([user, { total: data.total - sharedDuration, songs: [], totalSongs: data.totalSongs - sharedSongs }]);
+                    userEntries.push([`${user} (partagé)`, { total: sharedDuration, songs: data.songs, totalSongs: sharedSongs }]);
+                } else { userEntries.push([user, data]); }
             });
 
-            userEntries.sort((a, b) =>
-                b[1].total - a[1].total ||
-                b[1].totalSongs - a[1].totalSongs ||
-                a[0].localeCompare(b[0])
-            );
+            userEntries.sort((a, b) => b[1].total - a[1].total || b[1].totalSongs - a[1].totalSongs || a[0].localeCompare(b[0]));
 
-            userEntries.forEach(([user, data]) => {
-                const div = document.createElement('div');
-                div.className = 'user-section';
+            userEntries.forEach(([user, data], index) => {
+                const userDiv = document.createElement('div'); userDiv.className = 'user-section';
 
-                let cls = 'ok';
-                if (data.total === 0) cls = 'zero';
-                else if (data.total > timePerUser) cls = 'over';
+                let cls = 'ok'; if (data.total === 0) cls = 'zero'; else if (data.total > timePerUser) cls = 'over';
 
-                const toggleBtn = document.createElement('button');
-                toggleBtn.textContent = '▶';
-                toggleBtn.className = 'toggle-btn';
+                const headerDiv = document.createElement('div'); headerDiv.className = 'user-header';
 
-                const span = document.createElement('span');
-                span.className = cls;
+                const toggleBtn = document.createElement('button'); toggleBtn.className = 'toggle-btn'; toggleBtn.textContent = '▶';
+
+                const span = document.createElement('span'); span.className = cls;
                 span.textContent = ` ${user} - ${Math.floor(data.total / 60)}:${String(data.total % 60).padStart(2, '0')} (${Math.round(data.totalSongs)} karaokés)`;
 
-                const ul = document.createElement('ul');
-                ul.className = 'kara-list';
-                ul.style.display = 'none';
+                headerDiv.appendChild(toggleBtn); headerDiv.appendChild(span); userDiv.appendChild(headerDiv);
+
+                const karaContainer = document.createElement('div'); karaContainer.className = 'kara-container'; karaContainer.style.display = 'none';
 
                 data.songs.forEach(k => {
+                    const karaItem = document.createElement('div'); karaItem.className = 'kara-item';
                     const title = k.titles?.eng || k.titles?.qro || k.titles?.jpn || "Sans titre";
                     const artists = k.singers?.map(s => s.name).join(", ") || "Artiste inconnu";
-                    ul.innerHTML += `<li>${title} - ${artists} - ${Math.floor(k.duration / 60)}:${String(k.duration % 60).padStart(2, '0')}</li>`;
+                    const types = (k.songtypes || []).map(t => `<span class="tag">${t.name}</span>`).join(" ");
+                    const versions = (k.versions || []).map(v => `<span class="version-tag">${v.name}</span>`).join(" ");
+                    karaItem.innerHTML = `<div class="kara-title">${title} ${versions}</div>
+            <div class="kara-info">${artists} - ${Math.floor(k.duration / 60)}:${String(k.duration % 60).padStart(2, '0')} | Types: ${types}</div>`;
+                    karaContainer.appendChild(karaItem);
                 });
+
+                userDiv.appendChild(karaContainer);
 
                 toggleBtn.addEventListener('click', e => {
                     e.stopPropagation();
-                    if (ul.style.display === 'none') {
-                        ul.style.display = 'block';
-                        toggleBtn.textContent = '▼';
+                    if (karaContainer.style.display === 'none') { karaContainer.style.display = 'block'; toggleBtn.textContent = '▼'; }
+                    else { karaContainer.style.display = 'none'; toggleBtn.textContent = '▶'; }
+                });
+
+                const barContainer = document.createElement('div'); barContainer.className = 'time-bar-container';
+                const bar = document.createElement('div'); bar.className = 'time-bar';
+                const percent = Math.min(100, (data.total / timePerUser) * 100);
+                bar.style.width = percent + '%';
+                bar.style.background = (data.total === 0) ? '#b0b0b0' : (data.total > timePerUser) ? '#e74c3c' : '#6abf69';
+                barContainer.appendChild(bar); userDiv.appendChild(barContainer);
+
+                container.appendChild(userDiv);
+            });
+        }
+
+        document.getElementById('toggleAllBtn').addEventListener('click', () => {
+                const allContainers = document.querySelectorAll('.kara-container');
+                const allToggles = document.querySelectorAll('.toggle-btn');
+                const anyClosed = Array.from(allContainers).some(c => c.style.display === 'none');
+
+                allContainers.forEach((c, i) => {
+                    if (anyClosed) {
+                        c.style.display = 'block';
+                        allToggles[i].textContent = '▼';
                     } else {
-                        ul.style.display = 'none';
-                        toggleBtn.textContent = '▶';
+                        c.style.display = 'none';
+                        allToggles[i].textContent = '▶';
                     }
                 });
 
-                div.appendChild(toggleBtn);
-                div.appendChild(span);
-                div.appendChild(ul);
-                container.appendChild(div);
+                document.getElementById('toggleAllBtn').textContent = anyClosed ? 'Tout replier' : 'Tout dérouler';
             });
-        }
-    </script>
 
+    </script>
 </body>
 
-</html>
+</html> 
