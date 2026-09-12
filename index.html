@@ -438,6 +438,26 @@
     .tag.misc { background: var(--accent-soft); color: var(--accent); }
     .tag.version { font-style: italic; background: none; color: var(--accent); padding-left: 0; }
 
+    .kara-item.fake { border-left: 3px dashed var(--accent); padding-left: 13px; }
+
+    .fake-remove {
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: var(--text-muted);
+        font-size: .75rem;
+        margin-left: 4px;
+        vertical-align: middle;
+    }
+
+    .fake-remove:hover { color: var(--over); }
+
+    .hint {
+        font-size: .8rem;
+        color: var(--text-muted);
+        margin: 0 0 10px;
+    }
+
     #playlistOutput:empty::after,
     .empty-state {
         display: block;
@@ -543,6 +563,33 @@
             <div class="split-list" id="splitList"></div>
         </div>
 
+        <div class="card">
+            <p class="hint" style="margin-top:0;">
+                Ajouter des karaokés fictifs, absents du fichier importé (utile si vous préparez un complément à ajouter plus tard, par ex. depuis kara.moe vers un autre dépôt).
+            </p>
+            <div class="field-grid">
+                <div class="field">
+                    <label for="fakeTitle">Titre</label>
+                    <input type="text" id="fakeTitle" placeholder="Titre du karaoké">
+                </div>
+                <div class="field">
+                    <label for="fakeArtist">Artiste (optionnel)</label>
+                    <input type="text" id="fakeArtist" placeholder="Nom de l'artiste">
+                </div>
+                <div class="field">
+                    <label for="fakeDuration">Durée (mm:ss)</label>
+                    <input type="text" id="fakeDuration" placeholder="3:30">
+                </div>
+                <div class="field">
+                    <label for="fakeUser">Participant</label>
+                    <input type="text" id="fakeUser" list="fakeUserList" placeholder="Nom du participant">
+                    <datalist id="fakeUserList"></datalist>
+                </div>
+            </div>
+            <button class="btn secondary" id="addFakeBtn" style="margin-top:10px;">➕ Ajouter le karaoké fictif</button>
+            <div class="split-list" id="fakeList"></div>
+        </div>
+
         <div class="card" id="participantsCard">
             <strong>Participants</strong>
             <span id="participantCount" style="color:var(--text-muted);font-size:.85rem;"></span>
@@ -563,6 +610,7 @@
         data: null,
         splits: {},        // { nickname: count }
         activeTags: new Set(),
+        fakeKaras: [],      // manually added, non-imported karaokes
         theme: null
     };
 
@@ -583,6 +631,13 @@
         splitCount: $('splitCount'),
         addSplitBtn: $('addSplitBtn'),
         splitList: $('splitList'),
+        fakeTitle: $('fakeTitle'),
+        fakeArtist: $('fakeArtist'),
+        fakeDuration: $('fakeDuration'),
+        fakeUser: $('fakeUser'),
+        fakeUserList: $('fakeUserList'),
+        addFakeBtn: $('addFakeBtn'),
+        fakeList: $('fakeList'),
         participantsList: $('participantsList'),
         participantCount: $('participantCount'),
         statsGrid: $('statsGrid'),
@@ -618,6 +673,18 @@
         if (m > 0) str += (str ? ' ' : '') + m + 'min';
         if (s > 0 || (!h && !m)) str += (str ? ' ' : '') + s + 's';
         return str;
+    }
+
+    function parseDuration(input) {
+        const str = String(input || '').trim();
+        if (!str) return 0;
+        if (str.includes(':')) {
+            const parts = str.split(':').map(p => parseFloat(p.replace(',', '.')) || 0);
+            let seconds = 0;
+            for (const p of parts) seconds = seconds * 60 + p;
+            return Math.max(0, Math.round(seconds));
+        }
+        return Math.max(0, Math.round(parseFloat(str.replace(',', '.')) || 0));
     }
 
     function debounce(fn, wait) {
@@ -679,9 +746,13 @@
         return [];
     }
 
+    function getEffectiveKaraokes() {
+        return getKaraokesFromPlaylist(state.data).concat(state.fakeKaras);
+    }
+
     function getAllUsers(data) {
         const set = new Set();
-        getKaraokesFromPlaylist(data).forEach(k => set.add(k.nickname || 'Inconnu'));
+        getEffectiveKaraokes().forEach(k => set.add(k.nickname || 'Inconnu'));
         data?.PlaylistInformation?.contributors?.forEach(c => c?.nickname && set.add(c.nickname));
         return [...set];
     }
@@ -728,6 +799,7 @@
                 state.data = parsed;
                 state.splits = {};
                 state.activeTags = new Set();
+                state.fakeKaras = [];
                 onPlaylistLoaded();
             } catch (err) {
                 console.error(err);
@@ -766,6 +838,8 @@
         $('dropzoneText').innerHTML = `📂 <strong>${escapeHtml(title)}</strong> chargée — glissez un autre fichier pour la remplacer`;
 
         populateSplitSelect();
+        populateFakeUserList();
+        renderFakeList();
         renderAll();
     }
 
@@ -820,11 +894,80 @@
         });
     }
 
+    function populateFakeUserList() {
+        els.fakeUserList.innerHTML = '';
+        getAllUsers(state.data).forEach(u => {
+            const opt = document.createElement('option');
+            opt.value = u;
+            els.fakeUserList.appendChild(opt);
+        });
+    }
+
+    function addFakeKara() {
+        const title = els.fakeTitle.value.trim();
+        const artist = els.fakeArtist.value.trim();
+        const user = els.fakeUser.value.trim();
+        const duration = parseDuration(els.fakeDuration.value);
+
+        if (!title || !user) {
+            showToast('Le titre et le participant sont obligatoires');
+            return;
+        }
+
+        state.fakeKaras.push({
+            kid: 'fake-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+            nickname: user,
+            duration,
+            titles: { eng: title },
+            singers: artist ? [{ name: artist }] : [],
+            singergroups: [],
+            songtypes: [],
+            misc: [{ name: 'Ajout manuel', description: { fre: 'Karaoké ajouté manuellement, absent du fichier importé' } }],
+            versions: [],
+            fake: true
+        });
+
+        els.fakeTitle.value = '';
+        els.fakeArtist.value = '';
+        els.fakeDuration.value = '';
+        els.fakeUser.value = '';
+        els.fakeTitle.focus();
+
+        populateSplitSelect();
+        populateFakeUserList();
+        renderFakeList();
+        renderAll();
+    }
+
+    function removeFakeKara(kid) {
+        state.fakeKaras = state.fakeKaras.filter(k => k.kid !== kid);
+        populateSplitSelect();
+        populateFakeUserList();
+        renderFakeList();
+        renderAll();
+    }
+
+    function renderFakeList() {
+        els.fakeList.innerHTML = '';
+        state.fakeKaras.forEach(k => {
+            const tag = document.createElement('span');
+            tag.className = 'split-tag';
+            tag.innerHTML = `${escapeHtml(karaTitle(k))} — ${escapeHtml(k.nickname)} (${formatHMS(k.duration)}) <button aria-label="Retirer">✕</button>`;
+            tag.querySelector('button').addEventListener('click', () => removeFakeKara(k.kid));
+            els.fakeList.appendChild(tag);
+        });
+    }
+
+    els.addFakeBtn.addEventListener('click', addFakeKara);
+    [els.fakeTitle, els.fakeArtist, els.fakeDuration, els.fakeUser].forEach(input => {
+        input.addEventListener('keydown', e => { if (e.key === 'Enter') addFakeKara(); });
+    });
+
     // ---------- rendering ----------
 
     function renderAll() {
         if (!state.data) return;
-        const karaListAll = getKaraokesFromPlaylist(state.data);
+        const karaListAll = getEffectiveKaraokes();
         const searchQuery = normalize(els.searchInput.value);
 
         renderTagFilters(karaListAll);
@@ -923,7 +1066,7 @@
             users[u].totalSongs += 1;
         });
 
-        const entries = Object.entries(users);
+        const entries = sortEntries(Object.entries(users));
         els.participantsList.innerHTML = '';
         entries.forEach(([user, data]) => {
             const el = document.createElement('span');
@@ -981,7 +1124,7 @@
             let diff = 0;
             if (key === 'duration') diff = a[1].total - b[1].total;
             else if (key === 'songs') diff = a[1].totalSongs - b[1].totalSongs;
-            else diff = b[0].localeCompare(a[0]);
+            else diff = a[0].localeCompare(b[0]);
             if (dir === 'desc') diff = -diff;
             return diff || a[0].localeCompare(b[0]);
         });
@@ -1036,17 +1179,19 @@
             karaContainer.className = 'kara-container';
             data.songs.forEach(k => {
                 const item = document.createElement('div');
-                item.className = 'kara-item';
+                item.className = 'kara-item' + (k.fake ? ' fake' : '');
                 const title = karaTitle(k);
                 const artists = karaArtists(k);
                 const duration = formatHMS(k.duration || 0);
                 const types = (k.songtypes || []).map(t => `<span class="tag songtype" title="${escapeHtml(t.description?.fre || t.description?.eng || t.name)}">${escapeHtml(t.name)}</span>`).join(' ');
                 const miscTags = (k.misc || []).map(m => `<span class="tag misc" title="${escapeHtml(m.description?.fre || m.description?.eng || m.name)}">${escapeHtml(m.name)}</span>`).join(' ');
                 const versions = (k.versions || []).map(v => `<span class="tag version" title="${escapeHtml(v.description?.fre || v.description?.eng || v.name)}">${escapeHtml(v.name)}</span>`).join(' ');
+                const removeBtn = k.fake ? '<button class="fake-remove" title="Retirer ce karaoké fictif">✕</button>' : '';
                 item.innerHTML = `
-                    <div class="kara-title">${escapeHtml(title)} ${versions}</div>
+                    <div class="kara-title">${escapeHtml(title)} ${versions}${removeBtn}</div>
                     <div class="kara-info"><span>${escapeHtml(artists)} — ${duration}</span>${types}${miscTags}</div>
                 `;
+                if (k.fake) item.querySelector('.fake-remove').addEventListener('click', () => removeFakeKara(k.kid));
                 karaContainer.appendChild(item);
             });
             section.appendChild(karaContainer);
@@ -1076,7 +1221,7 @@
     });
 
     function exportSummary() {
-        const karaListAll = getKaraokesFromPlaylist(state.data);
+        const karaListAll = getEffectiveKaraokes();
         const theoreticalTime = Math.max(1, (+els.theoreticalTime.value || 180)) * 60;
         const theoreticalUsers = Math.max(1, (+els.theoreticalUsers.value || 15));
         const timePerUser = theoreticalTime / theoreticalUsers;
